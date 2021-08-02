@@ -24,7 +24,8 @@
 #include "gazebo/transport/transport.hh"
 #include "boost/thread.hpp"
 #include <shared_control_msgs/GetTorques.h>
-
+#include <std_msgs/Bool.h>
+#include <std_msgs/Float64MultiArray.h>
 
 using namespace std;
 
@@ -51,11 +52,19 @@ namespace gazebo
 		_node_handle = new ros::NodeHandle();
 		_ready = false;
 
+
+		joint_tor_sub = _node_handle->subscribe("/torque_joints", 1, &WorldEdit::torque_cb, this);
+
   		_client = _node_handle->serviceClient<shared_control_msgs::GetTorques>("get_torques");	
 		boost::thread mainLoop_t( &WorldEdit::mainLoop, this);
 		
     }
 
+    public: void torque_cb( std_msgs::Float64MultiArray data ) {
+		
+		_torque_ready = true;
+		cout << " torque ready " << endl;
+    }
 
 	public: void mainLoop() {
 
@@ -70,21 +79,23 @@ namespace gazebo
 		} 
 		cout << "Ready!" << endl;
 
+		ros::Publisher synch = _node_handle->advertise<std_msgs::Bool>("/mpc/sync", 10);
+		std_msgs::Bool data;
+		data.data = true;
+
 		while ( ros::ok() ) {
+			
+			cout << "before publishing" << endl;
+			for(int i=0; i<100; i++ ) synch.publish( data );
+			ros::spinOnce();
 
-
-			if( _client.call( gtorque ) ) {
-				cout << "gtorque: " << gtorque.response.tj0 << " "  << gtorque.response.tj1 << " "  << gtorque.response.tj2 << " "  << gtorque.response.tj3 << " " 
-			 	<< gtorque.response.tj4 << " "   << gtorque.response.tj5 << endl;  
-			}
-			else {
-				cout << "failed to call the service" << endl;
-			}
-
-			worldControlMsg.set_pause(0);
+			worldControlMsg.set_pause(0); //PAUSE
 			this->pub->Publish(worldControlMsg);
         	
-			sleep(1);
+			while (!_torque_ready ) usleep ( 0.1*1e6);
+			_torque_ready = false;
+
+			//apply torque
 			
 			worldControlMsg.set_pause(1);
 			this->pub->Publish(worldControlMsg);
@@ -130,6 +141,9 @@ namespace gazebo
     private: event::ConnectionPtr updateConnection;
 	msgs::WorldControl worldControlMsg;
 	ros::ServiceClient _client;
+	private: ros::Subscriber joint_tor_sub;
+	private: bool _torque_ready;
+
   };
 
   // Register this plugin with the simulator
