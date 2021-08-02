@@ -26,6 +26,8 @@
 #include <shared_control_msgs/GetTorques.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64MultiArray.h>
+#include <std_msgs/Float64.h>
+#include <shared_control_msgs/requestCalc.h>
 
 using namespace std;
 
@@ -55,15 +57,23 @@ namespace gazebo
 
 		joint_tor_sub = _node_handle->subscribe("/torque_joints", 1, &WorldEdit::torque_cb, this);
 
-  		_client = _node_handle->serviceClient<shared_control_msgs::GetTorques>("get_torques");	
+  		//_client = _node_handle->serviceClient<shared_control_msgs::GetTorques>("get_torques");	
+  		_client = _node_handle->serviceClient<shared_control_msgs::requestCalc>("start_calc");	
 		boost::thread mainLoop_t( &WorldEdit::mainLoop, this);
 		
     }
 
     public: void torque_cb( std_msgs::Float64MultiArray data ) {
 		
+		tau1_msg.data = data.data[0];
+		tau2_msg.data = data.data[1];
+		tau3_msg.data = data.data[2];
+		tau4_msg.data = data.data[3];
+		tau5_msg.data = data.data[4];
+		tau6_msg.data = data.data[5];
+		tau7_msg.data = data.data[6];
 		_torque_ready = true;
-		cout << " torque ready " << endl;
+
     }
 
 	public: void mainLoop() {
@@ -71,6 +81,14 @@ namespace gazebo
 		msgs::WorldControl msg;
 
 		ros::Rate r(1);
+		ros::Publisher joint1_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_1_effort_controller/command", 1);
+		ros::Publisher joint2_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_2_effort_controller/command", 1);
+		ros::Publisher joint3_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_3_effort_controller/command", 1);
+		ros::Publisher joint4_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_4_effort_controller/command", 1);
+		ros::Publisher joint5_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_5_effort_controller/command", 1);
+		ros::Publisher joint6_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_6_effort_controller/command", 1);
+		ros::Publisher joint7_effort_pub = _node_handle->advertise<std_msgs::Float64>("/lbr_iiwa/lbr_iiwa_joint_7_effort_controller/command", 1);
+
 		shared_control_msgs::GetTorques gtorque;
 
 		cout << "Waiting the system starts!" << endl;
@@ -78,28 +96,43 @@ namespace gazebo
 			usleep(0.05*1e6);
 		} 
 		cout << "Ready!" << endl;
-
-		ros::Publisher synch = _node_handle->advertise<std_msgs::Bool>("/mpc/sync", 10);
+	
+		//ros::Publisher synch = _node_handle->advertise<std_msgs::Bool>("/mpc/sync", 10);
 		std_msgs::Bool data;
 		data.data = true;
 
+
+
+		shared_control_msgs::requestCalc rc;
+		while( !_client.call(rc) ) {
+			sleep(1);
+		}
+
+		cout << "Starting!" << endl;
+
 		while ( ros::ok() ) {
 			
-			cout << "before publishing" << endl;
-			for(int i=0; i<100; i++ ) synch.publish( data );
-			ros::spinOnce();
-
-			worldControlMsg.set_pause(0); //PAUSE
-			this->pub->Publish(worldControlMsg);
-        	
-			while (!_torque_ready ) usleep ( 0.1*1e6);
+			_client.call(rc);
+       	
+			while (!_torque_ready ) {
+				ros::spinOnce();
+				usleep ( 0.1*1e6);
+				cout << "_torque_ready: " << _torque_ready << endl;
+			}
 			_torque_ready = false;
-
-			//apply torque
 			
-			worldControlMsg.set_pause(1);
+			joint1_effort_pub.publish(tau1_msg);
+			joint2_effort_pub.publish(tau2_msg);
+			joint3_effort_pub.publish(tau3_msg);
+			joint4_effort_pub.publish(tau4_msg);
+			joint5_effort_pub.publish(tau5_msg);
+			joint6_effort_pub.publish(tau6_msg);
+			joint7_effort_pub.publish(tau7_msg);
+			
+			//apply torque
+			worldControlMsg.set_pause(0);
 			this->pub->Publish(worldControlMsg);
-			sleep(1);
+			//sleep(1);
 	
 			/*
 			// Throttle Publication
@@ -125,6 +158,8 @@ namespace gazebo
     {
 		_ready = true;
 
+		worldControlMsg.set_pause(1); //PAUSE
+		this->pub->Publish(worldControlMsg);
         //gazebo::common::Time::MSleep(1000);
 
         /*msgs::WorldControl msg;
@@ -143,6 +178,7 @@ namespace gazebo
 	ros::ServiceClient _client;
 	private: ros::Subscriber joint_tor_sub;
 	private: bool _torque_ready;
+	std_msgs::Float64 tau1_msg, tau2_msg, tau3_msg, tau4_msg, tau5_msg, tau6_msg, tau7_msg;
 
   };
 
